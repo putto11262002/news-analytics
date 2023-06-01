@@ -1,35 +1,25 @@
 import scraperV1, { IScaperV1Config } from "./scrapers/v1";
-import fs from "fs";
 
-const config: IScaperV1Config = {
-    siteURL: "https://www.bbc.com/news",
-    card: {
-      tag: "div",
-      classes: [
-        "nw-c-top-stories__primary-item",
-        "nw-c-top-stories__secondary-item",
-        "nw-c-top-stories__tertiary-item",
-      ],
+scraperV1({
+  url: "https://www.bbc.com/news",
+  elSpecs: [
+    {
+      key: "link",
+      target: {
+        selector:
+          ".nw-c-top-stories__secondary-item a.gs-c-promo-heading, .nw-c-top-stories-primary__story a.gs-c-promo-heading",
+      },
+      return: { attributes: ["href"], nth: "*" },
     },
-    link: {
-      tag: "a",
-      classes: ["gs-c-promo-heading"],
-      fallbackBaseURL: "https://www.bbc.com/",
+    {
+      key: "title",
+      target: {
+        selector:
+          ".nw-c-top-stories__secondary-item h3.gs-c-promo-heading__title, .nw-c-top-stories-primary__story h3.gs-c-promo-heading__title",
+      },
+      return: { attributes: ["text"], nth: "*" },
     },
-    cardTitle: {
-      tag: "h3",
-      classes: ["gs-c-promo-heading__title"],
-    },
-    cardSummary: {
-      tag: "p",
-      classes: ["gs-c-promo-summary"],
-    },
-    content: {
-      tag: "p",
-      classes: ["ssrcss-1q0x1qg-Paragraph"],
-    },
-  };
+  ],
+}).then((results) => results.map((res) => console.log(res)));
 
-scraperV1(config).then((res) =>
-  fs.writeFileSync(`data/${Date.now()}.json`, JSON.stringify(res))
-);
+

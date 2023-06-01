@@ -1,8 +1,7 @@
 import axios from "axios";
 import cheerio, { CheerioAPI } from "cheerio";
 
-
-const fetchPage = async (pageUrl: string) => {
+const fetchHtml = async (pageUrl: string) => {
   const res = await axios.get(pageUrl);
   const data = res.data;
   return data;
@@ -16,158 +15,87 @@ const addBaseURLToLink = (link: string, fallBackUrl: string) => {
   return newLink.toString();
 };
 
-const getElsByTagAndClassRegex = (
-  $: CheerioAPI,
-  targetTag: string,
-  targetClassRegex: RegExp
-) => {
-  const els = $(targetTag).filter((i, el) => {
-    const elClass = $(el).attr("class");
-    if (!elClass) return false;
-    if (targetClassRegex.test(elClass)) {
-      return true;
-    }
-    return false;
-  });
+const getElBySelectorAndClassRegex = ($: CheerioAPI, spec: IElSpec) => {
+  // apply selector
+  var elMatchedSelector = $(spec.target.selector).toArray();
+  var els: any[] = [];
 
-  return els.toArray();
-};
+  for (let i = 0; i < elMatchedSelector.length; i++) {
+    if (spec.return.nth !== "*" && i >= spec.return.nth) break;
 
+    let el = elMatchedSelector[i];
+    // let elClass = $(el).attr("class") || "";
 
-const getFirstElByTagAndClassRegex = (
-  $: CheerioAPI,
-  targetTag: string,
-  targetClassRegex: RegExp
-) => {
-  for (let el of $(targetTag).toArray()) {
-    const elClass = $(el).attr("class");
-    if (!elClass) continue;
-    if (targetClassRegex.test(elClass)) {
-      return el;
-    }
+    els.push(el);
   }
-  return undefined;
+
+  return els;
 };
 
-/**
- * Create regular expression based on a list of class names. 
- * The regular expression matches a string that contain any of the supplied class names
- * @param classes
- * @returns
- */
-const createRegex = (classes: string[]) => {
-  return new RegExp(`(${classes.join("|")})`, "gi");
-};
+export interface IElTarget {
+  selector: string;
+  // classRegex: RegExp;
+}
 
+export type ReturnAttributes = "href" | "text" | "class";
+
+export interface IElRetrun {
+  nth: number | "*";
+  attributes: ReturnAttributes[];
+}
 export interface IElSpec {
-  tag: string;
-  classes: string[];
+  key: string;
+  return: IElRetrun;
+  target: IElTarget;
 }
 
-export interface IATagSpec extends IElSpec {
-  fallbackBaseURL: string;
-}
 export interface IScaperV1Config {
-  siteURL: string;
-  card: IElSpec;
-  cardTitle: IElSpec;
-  cardSummary: IElSpec;
-  link: IATagSpec;
-  content: IElSpec;
+  url: string;
+  elSpecs: IElSpec[];
 }
 
-export interface IScraperV1News {
-  title: string;
-  link: string;
-  summary?: string;
-  content?: string;
-  datetime: Date;
-  scraper: string;
-}
-
-/**
- * Scrape each card title, summary and link 
- * then use the card link to navigate to the news page and scape the news content
- * @param config Scraping configuraiton
- * @returns A List of news objects
- */
 const scraperV1 = async (config: IScaperV1Config) => {
-  console.log("Fetching", config.siteURL, '...')
-  const homePage = await fetchPage(config.siteURL);
+  const html = await fetchHtml(config.url);
+  const $ = cheerio.load(html);
+  const results: any[] = [];
 
-  console.log("Scraping", config.siteURL, config.card.tag, config.card.classes.join(',') , '...')
-  const newsCardEls = getElsByTagAndClassRegex(
-    cheerio.load(homePage),
-    config.card.tag,
-    createRegex(config.card.classes)
-  );
+  for (let elSpec of config.elSpecs) {
+    let els = getElBySelectorAndClassRegex($, elSpec);
 
-  const news = await Promise.all(
-    newsCardEls.map(async (el) => {
-    
-      const $ = cheerio.load(el);
+    let returnValues: { [key: string]: undefined | string }[] = [];
+    els.forEach((el) => {
 
-      const linkEl = getFirstElByTagAndClassRegex(
-        $,
-        config.link.tag,
-        createRegex(config.link.classes)
-      );
-      const href = $(linkEl).attr("href");
-      const link = href
-        ? addBaseURLToLink(href, config.link.fallbackBaseURL)
-        : undefined;
+      let returnValue: { [key: string]: undefined | string } = {};
 
-      const titleEls = getFirstElByTagAndClassRegex(
-        $,
-        config.cardTitle.tag,
-        createRegex(config.cardTitle.classes)
-      );
-      const title = $(titleEls).text();
+      elSpec.return.attributes.forEach((attr) => {
 
-      const summaryEls = getFirstElByTagAndClassRegex(
-        $,
-        config.cardSummary.tag,
-        createRegex(config.cardSummary.classes)
-      );
-      const summary = $(summaryEls).text();
+        let attrValue = undefined;
 
-      let content: string | undefined = undefined;
+        switch (attr) {
+          case "class":
+          case "href":
+            let href = $(el).attr(attr);
+            attrValue = href ? addBaseURLToLink(href, config.url) : undefined;
+            break;
+          case "text":
+            attrValue = $(el).text();
+            break;
+        }
 
-      if (link) {
-        console.log("Fetching", link, config.content.tag, config.content.classes.join(','), "...")
-        const newsPage = await fetchPage(link);
-        const contents = getElsByTagAndClassRegex(
-          cheerio.load(newsPage),
-          config.content.tag,
-          createRegex(config.content.classes)
-        );
-        console.log("Scraping", link, "...")
-        content = contents.map((p) => $(p).text()).join("\n");
-      }
+        returnValue[attr] = attrValue;
 
-      // console.log(
-      //   "\n",
-      //   {
-      //     title,
-      //     link,
-      //     summary,
-      //     content,
-      //   },
-      //   "\n"
-      // );
+      });
 
-      return {
-        title,
-        link,
-        summary,
-        content,
-      };
-    })
-  );
-  return news;
+      returnValues.push(returnValue);
+
+    });
+
+    results.push({ spec: elSpec, results: returnValues });
+  }
+
+
+  return results;
+
 };
 
 export default scraperV1;
-
-
-
