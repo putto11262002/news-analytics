@@ -37,7 +37,7 @@ export interface IElTarget {
   // classRegex: RegExp;
 }
 
-export type ReturnAttributes = "href" | "text" | "class";
+export type ReturnAttributes = string;
 
 export interface IElRetrun {
   nth: number | "*";
@@ -57,7 +57,7 @@ export interface IScaperV1Config {
 const scraperV1 = async (config: IScaperV1Config) => {
   const html = await fetchHtml(config.url);
   const $ = cheerio.load(html);
-  const results: any[] = [];
+  const results: {[key: string]: {[key: string]: string | undefined}[]} = {};
 
   for (let elSpec of config.elSpecs) {
     let els = getElBySelectorAndClassRegex($, elSpec);
@@ -71,11 +71,14 @@ const scraperV1 = async (config: IScaperV1Config) => {
 
         let attrValue = undefined;
 
-        switch (attr) {
-          case "class":
-          case "href":
-            let href = $(el).attr(attr);
-            attrValue = href ? addBaseURLToLink(href, config.url) : undefined;
+       
+
+        switch (attr.split(":")[0]) {
+         
+          case "attr":
+            let [k, v] = attr.split(":")
+            let value = $(el).attr(v);
+            attrValue = ( v === "href" && value) ? addBaseURLToLink(value, config.url) : value;
             break;
           case "text":
             attrValue = $(el).text();
@@ -90,11 +93,15 @@ const scraperV1 = async (config: IScaperV1Config) => {
 
     });
 
-    results.push({ spec: elSpec, results: returnValues });
+    results[elSpec.key] = returnValues
   }
 
 
-  return results;
+  return {
+    results,
+    timestamp: new Date(),
+    scrapperVersion: "v1"
+  };
 
 };
 
